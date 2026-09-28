@@ -658,7 +658,9 @@
     "sourceSite": "https://lovelyblossoms.com/",
     "sourceName": "Lovelyblossoms",
     "options": {
-      "useNewChapterEndpoint": true
+      "useNewChapterEndpoint": true,
+      "browserHeaders": true,
+      "versionIncrements": 1
     }
   },
   {
