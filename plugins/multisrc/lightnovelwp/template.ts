@@ -438,14 +438,65 @@ export class LightNovelWPPlugin implements Plugin.PluginBase {
         throw error;
       }
     }
-    return (
-      data
-        .match(/<div.*?class="epcontent ([^]*?)<div.*?class="?bottomnav/g)?.[0]
-        .match(/<p[^>]*>([^]*?)<\/p>/g)
-        ?.join('\n') || ''
-    );
-  }
+    // The chapter text lives in the `epcontent` block. Older child themes
+    // closed it with a `bottomnav` div, but that wrapper is gone on current
+    // ones, so anchoring on it silently returned an empty chapter.
+    //
+    // Walk the markup with the parser rather than cutting the document with a
+    // regex: the block has to end at the element that closes it, and any
+    // landmark guessed from the surrounding text is wrong on some site. A
+    // <script> inside the block is prose-adjacent, not the end of it, so
+    // treating the first one as a boundary truncates the chapter.
+    let depth = 0;
+    let inside = false;
+    let found = false;
+    let isReadingParagraph = false;
+    let paragraph = '';
+    const paragraphs: string[] = [];
 
+    const parser = new Parser({
+      onopentag(name, attribs) {
+        if (name === 'div' && !inside) {
+          const className = attribs['class'] || '';
+          if (/(^|\s)epcontent(\s|$)/.test(className)) {
+            inside = true;
+            found = true;
+            depth = 1;
+          }
+          return;
+        }
+        if (!inside) return;
+        if (name === 'div') depth++;
+        else if (name === 'p') isReadingParagraph = true;
+      },
+      ontext(text) {
+        if (inside && isReadingParagraph && text.trim()) {
+          paragraph += text;
+        }
+      },
+      onclosetag(name) {
+        if (!inside) return;
+        if (name === 'p') {
+          if (paragraph.trim()) paragraphs.push(paragraph.trim());
+          paragraph = '';
+          isReadingParagraph = false;
+        } else if (name === 'div') {
+          depth--;
+          if (depth === 0) inside = false;
+        }
+      },
+    });
+
+    parser.write(data);
+    parser.end();
+
+    // No epcontent block means this was not a chapter page (a login wall or
+    // an error page served with 200). Returning the whole document here would
+    // show that page's text as the chapter, so report nothing instead.
+    if (!found) return '';
+
+    return paragraphs.join('\n');
+  }
   async searchNovels(
     searchTerm: string,
     page: number,
